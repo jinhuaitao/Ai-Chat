@@ -1,6 +1,5 @@
 # AI Chat —— 部署在 Cloudflare Workers 上的 Web 版 AI
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jinhuaitao/Ai-Chat)
 
 一个 ChatGPT 风格的对话应用，整个后端就是一个 Worker + 一个 R2 桶。
 **部署时 R2 会自动创建、自动绑定**，你只需要填三个环境变量。
@@ -14,7 +13,6 @@
 > 👆 点上面这个按钮，Cloudflare 会自动克隆仓库、创建并绑定 R2、构建部署，全程不用碰命令行。
 > 详细说明见 [「二、部署」](#二部署)。
 
-![浅色](screenshots/03-对话完成-浅色.png)
 
 ---
 
