@@ -1,6 +1,6 @@
 # AI Chat —— 部署在 Cloudflare Workers 上的 Web 版 AI
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourname/ai-chat-worker)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jinhuaitao/Ai-Chat)
 
 一个 ChatGPT 风格的对话应用，整个后端就是一个 Worker + 一个 R2 桶。
 **部署时 R2 会自动创建、自动绑定**，你只需要填三个环境变量。
