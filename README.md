@@ -10,7 +10,8 @@
 - 存储：Cloudflare R2，存会话列表与全部对话历史
 - 流式：逐字返回；中途点「停止」时已生成的部分也会落盘
 
-> 👆 **上面那个按钮还不能用** —— 请先把本项目推到你的公开仓库，然后按 [「二、部署」](#二部署) 里的说明把链接里的仓库地址换掉。
+> 👆 点上面这个按钮，Cloudflare 会自动克隆仓库、创建并绑定 R2、构建部署，全程不用碰命令行。
+> 详细说明见 [「二、部署」](#二部署)。
 
 ![浅色](screenshots/03-对话完成-浅色.png)
 
@@ -44,24 +45,19 @@ https://openrouter.ai/api/v1              → https://openrouter.ai/api/v1/chat/
 
 ### 方式 A：一键部署按钮（推荐，全程不用碰命令行）
 
-**前提**：本项目必须在一个 **公开的** GitHub 或 GitLab 仓库里 —— Cloudflare 的部署按钮不支持私有仓库，
-也不支持自建 Git 服务。
+**前提**：本项目代码必须已经推到一个 **公开的** GitHub 或 GitLab 仓库 ——
+Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务。
 
-**第一步：把按钮链接换成你的仓库地址**
+本项目的仓库地址：<https://github.com/jinhuaitao/Ai-Chat>
 
-```markdown
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/你的用户名/你的仓库名)
-```
+**直接点这个按钮：**
 
-把上面这段里的 `https://github.com/你的用户名/你的仓库名` 换成你的真实仓库地址，
-粘到 README 顶部（或者你的博客、项目文档里）即可：
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jinhuaitao/Ai-Chat)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourname/ai-chat-worker)
+> 💡 如果你 fork 或搬运到了别的仓库，把按钮链接里的 `?url=` 后面换成你自己的仓库地址即可；
+> 也可以部署过一次后，去控制台该 Worker 的详情页点「分享」按钮，直接复制 Cloudflare 官方生成的片段。
 
-> 💡 已经用 Workers Builds 部署过一次的话，可以直接去控制台该 Worker 的详情页点「分享」按钮，
-> 复制 Cloudflare 官方生成的片段，就不用自己拼 URL 了。
-
-**第二步：点按钮，四步走完**
+**点下去之后，四步走完**
 
 | 步骤 | Cloudflare 会做什么 | 你需要做什么 |
 | --- | --- | --- |
