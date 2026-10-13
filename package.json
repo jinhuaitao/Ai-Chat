@@ -22,7 +22,7 @@
         "description": "上游 API Key。**请替换成你自己的真实密钥**，不要保留 `sk-xxxx` 这个占位符，否则会返回 401。"
       },
       "MODEL": {
-        "description": "默认模型，需要和上面的服务商匹配。例如 `gpt-4o-mini`、`deepseek-chat`、`moonshot-v1-8k`。"
+        "description": "默认模型，需要和上面的服务商匹配。例如 `gpt-4o-mini`、`deepseek-chat`、`moonshot-v1-8k`。想在下拉框里显示更好看的名字，用 `模型id:显示名` 的写法，例如 `deepseek-chat:DeepSeek V3`。"
       }
     }
   }

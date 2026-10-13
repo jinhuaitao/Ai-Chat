@@ -326,12 +326,7 @@ input:focus, textarea:focus {
   color: #8f97a8;
   background: rgba(255, 255, 255, .045);
 }
-.code-head button {
-  border: 0; background: transparent; cursor: pointer;
-  color: #a7aebd; font-size: 11.5px; padding: 3px 8px; border-radius: 6px;
-  text-transform: none; letter-spacing: 0;
-}
-.code-head button:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+/* 代码块头部的复制按钮样式见下方 .code-head .icon-btn（原来那套文字按钮样式已废弃） */
 .code-block pre { margin: 0; padding: 13px 15px; overflow-x: auto; }
 .code-block code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -349,6 +344,32 @@ input:focus, textarea:focus {
   transition: opacity .14s ease;
 }
 .msg:hover .msg-actions { opacity: 1; }
+
+/* 纯图标按钮（复制 / 重新生成） */
+.icon-btn {
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease, transform .1s ease;
+}
+.icon-btn:hover { background: rgba(127, 140, 170, .18); color: var(--text); }
+.icon-btn:active { transform: scale(.92); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.icon-btn.done { color: var(--accent); }
+.icon-btn.done:hover { background: var(--accent-soft); }
+.icon-btn svg { width: 16px; height: 16px; display: block; pointer-events: none; }
+/* 代码块里的图标按钮在深色底上，配色单独处理 */
+.code-head .icon-btn { width: 24px; height: 24px; padding: 0; border-radius: 6px; color: #a7aebd; }
+.code-head .icon-btn:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+.code-head .icon-btn.done { color: #6ee7a8; }
+.code-head .icon-btn svg { width: 14px; height: 14px; }
 
 .cursor-blink {
   display: inline-block;
@@ -526,6 +547,10 @@ input:focus, textarea:focus {
   .composer { padding-left: 0; padding-right: 0; }
   .welcome { padding-top: 6vh; }
   .msg-actions { opacity: 1; }
+  /* 图标按钮在触屏上要够大，否则点不准 */
+  .icon-btn { width: 34px; height: 34px; }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .msg-actions { gap: 4px; }
 }
 </style>
 </head>
@@ -610,6 +635,43 @@ input:focus, textarea:focus {
   var LS_MODEL = 'ai_chat_model';
   var toastTimer = null;
 
+  /* 图标一律内联 SVG，不引任何图标库（和「零外部依赖」保持一致） */
+  var SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+  var ICONS = {
+    copy: SVG_OPEN +
+      '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+      '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    check: SVG_OPEN.replace('stroke-width="2"', 'stroke-width="2.6"') +
+      '<polyline points="20 6 9 17 4 12"/></svg>',
+    refresh: SVG_OPEN +
+      '<polyline points="22 5 22 10 17 10"/>' +
+      '<path d="M19.7 14.6A8 8 0 1 1 17.7 6.3L22 10"/></svg>'
+  };
+
+  /** 生成一个图标按钮；label 同时用作 title 和 aria-label，保证只有图标也能看懂 */
+  function iconButton(icon, label, action) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'icon-btn';
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.dataset.action = action;
+    btn.innerHTML = ICONS[icon];
+    return btn;
+  }
+
+  /** 点击后短暂换成「已完成」图标，让纯图标按钮有明确反馈 */
+  function flashIcon(btn, doneIcon, backIcon) {
+    btn.innerHTML = ICONS[doneIcon];
+    btn.classList.add('done');
+    clearTimeout(btn.__flashTimer);
+    btn.__flashTimer = setTimeout(function () {
+      btn.innerHTML = ICONS[backIcon];
+      btn.classList.remove('done');
+    }, 1300);
+  }
+
   /* ---------------- 工具 ---------------- */
 
   function escapeHtml(s) {
@@ -664,6 +726,7 @@ input:focus, textarea:focus {
     return data;
   }
 
+  /** 复制成功返回 true，失败返回 false（调用方据此决定要不要换成对勾图标） */
   async function copyText(text) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
@@ -679,8 +742,10 @@ input:focus, textarea:focus {
         document.body.removeChild(ta);
       }
       showToast('已复制');
+      return true;
     } catch (e) {
       showToast('复制失败');
+      return false;
     }
   }
 
@@ -732,7 +797,8 @@ input:focus, textarea:focus {
         out.push(
           '<div class="code-block">' +
             '<div class="code-head"><span>' + langLabel + '</span>' +
-            '<button type="button" class="copy-code">复制</button></div>' +
+            '<button type="button" class="copy-code icon-btn" title="复制代码" ' +
+            'aria-label="复制代码" data-action="copy-code">' + ICONS.copy + '</button></div>' +
             '<pre><code>' + escapeHtml(block.code) + '</code></pre>' +
           '</div>'
         );
@@ -802,19 +868,15 @@ input:focus, textarea:focus {
     var actions = document.createElement('div');
     actions.className = 'msg-actions';
 
-    var copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.className = 'btn tiny';
-    copyBtn.textContent = '复制';
-    copyBtn.addEventListener('click', function () { copyText(msg.content); });
+    var copyBtn = iconButton('copy', '复制这条消息', 'copy');
+    copyBtn.addEventListener('click', async function () {
+      if (await copyText(msg.content)) flashIcon(copyBtn, 'check', 'copy');
+    });
     actions.appendChild(copyBtn);
 
     // 助手消息随时可重新生成；最后一条用户消息也可（用于中断后重试）
     if (msg.role !== 'user' || isLast) {
-      var regenBtn = document.createElement('button');
-      regenBtn.type = 'button';
-      regenBtn.className = 'btn tiny';
-      regenBtn.textContent = '重新生成';
+      var regenBtn = iconButton('refresh', '重新生成', 'regenerate');
       regenBtn.addEventListener('click', function () { regenerate(); });
       actions.appendChild(regenBtn);
     }
@@ -1066,7 +1128,10 @@ input:focus, textarea:focus {
 
   function updateHint() {
     var parts = [];
-    if (state.model) parts.push('模型：' + state.model);
+    if (state.model) {
+      var label = modelLabel(state.model);
+      parts.push('模型：' + label + (label !== state.model ? '（' + state.model + '）' : ''));
+    }
     if (state.endpointHost) parts.push(state.endpointHost);
     $('#hint').textContent = state.streaming ? '生成中…点击 ■ 可停止' : parts.join(' · ');
   }
@@ -1399,20 +1464,44 @@ input:focus, textarea:focus {
     ta.style.height = Math.min(ta.scrollHeight, 190) + 'px';
   }
 
+  /** 取某个模型 id 对应的显示名；没配自定义名字时就是 id 本身 */
+  function modelLabel(id) {
+    for (var i = 0; i < state.models.length; i += 1) {
+      if (state.models[i].id === id) return state.models[i].label;
+    }
+    return id || '';
+  }
+
+  /** 顶部那个模型小标签只显示显示名，鼠标悬停能看到真实 id */
+  function syncModelTag() {
+    var tag = $('#modelTag');
+    var label = modelLabel(state.model);
+    tag.textContent = label;
+    if (label && label !== state.model) tag.title = state.model;
+    else tag.removeAttribute('title');
+  }
+
   function fillModels() {
     var sel = $('#modelSelect');
     sel.innerHTML = '';
     state.models.forEach(function (m) {
       var opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = m;
+      opt.value = m.id;            // 提交给接口的始终是真实模型 id
+      opt.textContent = m.label;   // 界面上显示自定义名字
+      if (m.label !== m.id) opt.title = m.id;
       sel.appendChild(opt);
     });
+
     var saved = '';
     try { saved = localStorage.getItem(LS_MODEL) || ''; } catch (e) { saved = ''; }
-    state.model = state.models.indexOf(saved) >= 0 ? saved : (state.models[0] || '');
+    var hit = null;
+    for (var i = 0; i < state.models.length; i += 1) {
+      if (state.models[i].id === saved) { hit = state.models[i]; break; }
+    }
+    state.model = hit ? hit.id : (state.models[0] ? state.models[0].id : '');
+
     sel.value = state.model;
-    $('#modelTag').textContent = state.model;
+    syncModelTag();
     updateHint();
   }
 
@@ -1433,7 +1522,18 @@ input:focus, textarea:focus {
     state.needsAuth = !!cfg.needsAuth;
     state.title = cfg.title || 'AI Chat';
     state.endpointHost = cfg.endpointHost || '';
-    state.models = Array.isArray(cfg.models) && cfg.models.length ? cfg.models : ['gpt-4o-mini'];
+    // 兼容两种返回形态：{id,label} 对象数组，或旧的纯字符串数组
+    state.models = (Array.isArray(cfg.models) ? cfg.models : [])
+      .map(function (m) {
+        if (typeof m === 'string') return { id: m, label: m };
+        if (!m) return null;
+        var id = String(m.id == null ? '' : m.id).trim();
+        if (!id) return null;
+        var label = String(m.label == null ? '' : m.label).trim();
+        return { id: id, label: label || id };
+      })
+      .filter(Boolean);
+    if (!state.models.length) state.models = [{ id: 'gpt-4o-mini', label: 'gpt-4o-mini' }];
 
     document.title = state.title;
     $('#brandName').textContent = state.title;
@@ -1456,7 +1556,7 @@ input:focus, textarea:focus {
 
     $('#modelSelect').addEventListener('change', function (ev) {
       state.model = ev.target.value;
-      $('#modelTag').textContent = state.model;
+      syncModelTag();
       try { localStorage.setItem(LS_MODEL, state.model); } catch (e) { /* 忽略 */ }
       updateHint();
     });
@@ -1474,14 +1574,14 @@ input:focus, textarea:focus {
       if (state.controller) state.controller.abort();
     });
 
-    // 代码块复制（事件委托）
-    $('#messages').addEventListener('click', function (ev) {
-      var target = ev.target;
-      if (target && target.classList && target.classList.contains('copy-code')) {
-        var block = target.closest('.code-block');
-        var code = block ? $('code', block) : null;
-        if (code) copyText(code.textContent);
-      }
+    // 代码块复制（事件委托）。必须用 closest —— 图标按钮里的 SVG/path 才是真正的点击目标，
+    // 直接判断 ev.target 的 classList 会点不动。
+    $('#messages').addEventListener('click', async function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('.copy-code') : null;
+      if (!btn) return;
+      var block = btn.closest('.code-block');
+      var code = block ? $('code', block) : null;
+      if (code && (await copyText(code.textContent))) flashIcon(btn, 'check', 'copy');
     });
   }
 

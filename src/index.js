@@ -178,13 +178,43 @@ function resolveEndpoint(rawUrl) {
   return base + '/v1/chat/completions';
 }
 
+/**
+ * 解析单个模型配置项，支持自定义显示名：
+ *   deepseek-chat               → { id: 'deepseek-chat', label: 'deepseek-chat' }
+ *   deepseek-chat:DeepSeek V3   → { id: 'deepseek-chat', label: 'DeepSeek V3' }
+ *   deepseek-chat=DeepSeek V3   → 同上（= 与 : 等价）
+ *
+ * 优先按 "=" 切分，没有 "=" 时才按 ":" 切分 —— 因为模型 id 里可能自带冒号
+ * （例如 Ollama 的 llama3:8b），这种情况请用 "=" 写显示名：llama3:8b=Llama 3 8B
+ */
+function parseModelEntry(raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) return null;
+
+  let sep = text.indexOf('=');
+  if (sep < 0) sep = text.indexOf(':');
+  if (sep <= 0) return { id: text, label: text };
+
+  const id = text.slice(0, sep).trim();
+  if (!id) return { id: text, label: text };
+  const label = text.slice(sep + 1).trim();
+  return { id, label: label || id };
+}
+
+/** 返回 [{ id, label }]，按 id 去重 */
 function modelList(env) {
   const raw = String(env.MODELS || env.MODEL || DEFAULT_MODEL);
-  const list = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return list.length ? Array.from(new Set(list)) : [DEFAULT_MODEL];
+  const seen = new Set();
+  const list = [];
+
+  for (const part of raw.split(',')) {
+    const entry = parseModelEntry(part);
+    if (!entry || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    list.push(entry);
+  }
+
+  return list.length ? list : [{ id: DEFAULT_MODEL, label: DEFAULT_MODEL }];
 }
 
 function systemPrompt(env) {
@@ -263,7 +293,7 @@ async function handleConfig(request, env) {
     authed: true,
     title: siteTitle(env),
     models,
-    defaultModel: models[0],
+    defaultModel: models[0].id,
     endpointHost: (() => {
       try {
         return new URL(resolveEndpoint(env.API_URL)).host;
@@ -408,7 +438,12 @@ async function handleChat(request, env) {
   if (conv.messages.length === 1) conv.title = makeTitle(text);
   await saveConversation(env, conv); // 先把用户消息落盘，中断也不会丢
 
-  const model = String(body.model || modelList(env)[0] || DEFAULT_MODEL);
+  // 只接受配置里出现过的模型 id，避免通过接口调用任意（可能更贵的）模型
+  const models = modelList(env);
+  const requested = body.model && typeof body.model === 'object' ? body.model.id : body.model;
+  const picked = models.find((m) => m.id === String(requested == null ? '' : requested).trim());
+  const model = (picked || models[0]).id;
+
   const upstreamMessages = [];
   const sys = systemPrompt(env);
   if (sys) upstreamMessages.push({ role: 'system', content: sys });

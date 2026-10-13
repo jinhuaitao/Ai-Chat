@@ -1,5 +1,6 @@
 # AI Chat —— 部署在 Cloudflare Workers 上的 Web 版 AI
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jinhuaitao/Ai-Chat)
 
 一个 ChatGPT 风格的对话应用，整个后端就是一个 Worker + 一个 R2 桶。
 **部署时 R2 会自动创建、自动绑定**，你只需要填三个环境变量。
@@ -8,10 +9,12 @@
 - 后端：Cloudflare Worker，SSE 流式转发到任意 **OpenAI 兼容** 接口
 - 存储：Cloudflare R2，存会话列表与全部对话历史
 - 流式：逐字返回；中途点「停止」时已生成的部分也会落盘
+- 消息操作用内联 SVG 图标（复制 / 重新生成），复制成功会变成对勾
 
 > 👆 点上面这个按钮，Cloudflare 会自动克隆仓库、创建并绑定 R2、构建部署，全程不用碰命令行。
 > 详细说明见 [「二、部署」](#二部署)。
 
+![浅色](screenshots/03-对话完成-浅色.png)
 
 ---
 
@@ -21,11 +24,38 @@
 | --- | --- | --- | --- |
 | `API_URL` | ✅ | 上游接口地址（OpenAI 兼容） | `https://api.openai.com/v1` |
 | `API_KEY` | ✅ | 上游密钥，**建议存为 Secret** | `sk-...` |
-| `MODEL` | | 默认模型，不填为 `gpt-4o-mini` | `deepseek-chat` |
-| `MODELS` | | 下拉框里的模型列表，逗号分隔 | `deepseek-chat,deepseek-reasoner` |
+| `MODEL` | | 默认模型，不填为 `gpt-4o-mini`。**支持自定义显示名** | `deepseek-chat:DeepSeek V3` |
+| `MODELS` | | 下拉框里的模型列表，逗号分隔。**每项都支持自定义显示名** | `deepseek-chat:DeepSeek V3,deepseek-reasoner:DeepSeek R1` |
 | `SYSTEM_PROMPT` | | 系统提示词 | `You are a helpful assistant.` |
 | `SITE_TITLE` | | 页面标题 | `我的 AI` |
 | `ACCESS_PASSWORD` | | 访问密码。**设了就必须先输密码**，不设则完全公开 | `my-secret` |
+
+### 给模型起自定义名字
+
+`MODEL` 和 `MODELS` 的每一项都支持 `模型id:显示名` 的写法。**提交给上游接口的始终是真实模型 id，
+只有界面上显示的是你起的名字**：
+
+```
+MODELS=deepseek-chat:DeepSeek V3,deepseek-reasoner:DeepSeek R1,gpt-4o:GPT-4o
+```
+
+效果：下拉框里显示 `DeepSeek V3` / `DeepSeek R1` / `GPT-4o`，鼠标悬停能看到真实 id，
+底部提示会同时给出两者（`模型：DeepSeek V3（deepseek-chat）`）。
+
+等号 `=` 和冒号 `:` 都行，两者同时出现时**以 `=` 为准**。之所以两种都支持，是因为模型 id 本身可能含冒号 ——
+比如 Ollama 的 `llama3:8b`，这种情况请用等号写：
+
+```
+MODELS=llama3:8b=Llama 3 8B,qwen2.5:7b=Qwen2.5 7B
+```
+
+其它细节：
+
+- 没写显示名时，显示名就等于 id（`MODELS=gpt-4o-mini` 显示成 `gpt-4o-mini`）
+- 显示名留空会自动回退成 id（`MODELS=a:` → 显示 `a`）
+- 按 id 去重，重复时保留第一个显示名
+- 选中的模型记在浏览器本地，刷新后还记得
+- 接口只会接受 `MODELS` 里出现过的模型 id，传别的会回退到默认模型，避免有人拿你的 Key 调更贵的模型
 
 `API_URL` 的写法很宽松，下面这些都能正确识别：
 
@@ -175,6 +205,22 @@ login_fail/<ip>.json 登录失败限流记录
 | DELETE | `/api/conversations/:id` | 删除 |
 | POST | `/api/chat` | 发消息，`text/event-stream` 流式返回 |
 
+`GET /api/config` 的返回（`models` 是 `{id, label}` 数组，前端用它渲染下拉框）：
+
+```json
+{
+  "needsAuth": false,
+  "authed": true,
+  "title": "AI Chat",
+  "models": [
+    { "id": "deepseek-chat", "label": "DeepSeek V3" },
+    { "id": "deepseek-reasoner", "label": "DeepSeek R1" }
+  ],
+  "defaultModel": "deepseek-chat",
+  "endpointHost": "api.deepseek.com"
+}
+```
+
 `/api/chat` 的 SSE 事件：
 
 ```
@@ -197,6 +243,9 @@ data: {"type":"done","conversationId":"...","title":"...","messageCount":2}
 - **用户消息先落盘再请求上游。** 上游挂了也不会丢用户输入。
 - **前端渲染全部走 `createElement` + `textContent`**，Markdown 渲染器先做 HTML 转义再套用格式，
   `javascript:` 之类的伪协议链接不会被转换成 `<a>`。
+- **图标全部是手写内联 SVG**，不引 FontAwesome / iconfont 之类的图标库 —— 保持零外部依赖，
+  同时用 `stroke="currentColor"` 让图标自动跟随主题色。图标按钮的 `title` 和 `aria-label` 都写全，
+  鼠标悬停能看懂、读屏软件也能读出来。
 - **无任何外部 CDN 依赖**，离线也能打开界面，也不受第三方 CDN 可用性影响。
 
 ## 六、常见问题
@@ -212,6 +261,15 @@ R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是�
 
 **模型下拉框是空的 / 只有一个**
 `MODELS` 没配时会退化成只有 `MODEL` 一个。想看多个模型就配 `MODELS=a,b,c`。
+
+**配了显示名但下拉框里还是原始 id**
+检查分隔符。`MODELS=deepseek-chat:DeepSeek V3` 应该显示成 `DeepSeek V3`。
+如果模型 id 本身含冒号（例如 Ollama 的 `llama3:8b`），程序会误把 `llama3` 当 id，这种情况请用等号：
+`MODELS=llama3:8b=Llama 3 8B`。
+
+**下拉框里显示的名字对了，但请求报「模型不存在」**
+说明 id 写错了。鼠标悬停在下拉框选项或顶部标签上可以看到实际提交的 id，底部提示也会同时显示
+`模型：显示名（真实id）`，照这个 id 去核对服务商文档即可。
 
 **想换用别的模型服务商**
 只要对方兼容 OpenAI 的 `/chat/completions` 协议（DeepSeek、Kimi、通义、智谱、OpenRouter、硅基流动等），
