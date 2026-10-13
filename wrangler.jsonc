@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Worker 名称。自动创建出来的 R2 桶会以此为前缀命名（如 ai-chat-worker-xxx）
+  "name": "ai-chat-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
+
+  // 把 public/index.html 当作纯文本模块 import 进 Worker
+  "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
+
+  // ⚠️ 关键：这里【故意不写 bucket_name】，Cloudflare 会在部署时自动创建并自动绑定 R2。
+  // 如果之后想用已有的桶，把 bucket_name 填上即可（例如 "bucket_name": "my-chat-bucket"）。
+  "r2_buckets": [{ "binding": "CHAT_BUCKET" }],
+
+  // 公开配置可以写在这里，也可以去 Dashboard → Settings → Variables and Secrets 配。
+  // 注意：这里写过的变量会覆盖 Dashboard 上的同名变量，所以宁可注释掉、让用户在 Dashboard 里配。
+  // API_KEY / ACCESS_PASSWORD 属于密钥，请务必走 Dashboard 的 Secret（或 wrangler secret put）。
+  "vars": {
+    // "MODEL": "gpt-4o-mini",
+    // "MODELS": "gpt-4o-mini,gpt-4o",
+    // "SYSTEM_PROMPT": "You are a helpful assistant.",
+    // "SITE_TITLE": "AI Chat"
+  }
+}

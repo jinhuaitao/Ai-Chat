@@ -1,0 +1,15 @@
+{
+  "name": "cf-ai-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ChatGPT 风格的 Web AI 聊天应用，跑在 Cloudflare Workers 上，对话历史存 R2",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir=.wrangler/dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
