@@ -1,12 +1,16 @@
 # AI Chat —— 部署在 Cloudflare Workers 上的 Web 版 AI
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourname/ai-chat-worker)
+
 一个 ChatGPT 风格的对话应用，整个后端就是一个 Worker + 一个 R2 桶。
-**在 Cloudflare 控制台连接 GitHub 部署时，R2 会自动创建、自动绑定**，你只需要填三个环境变量。
+**部署时 R2 会自动创建、自动绑定**，你只需要填三个环境变量。
 
 - 前端：单页应用，零外部依赖（不引任何 CDN），浅色/深色主题，移动端适配
 - 后端：Cloudflare Worker，SSE 流式转发到任意 **OpenAI 兼容** 接口
 - 存储：Cloudflare R2，存会话列表与全部对话历史
 - 流式：逐字返回；中途点「停止」时已生成的部分也会落盘
+
+> 👆 **上面那个按钮还不能用** —— 请先把本项目推到你的公开仓库，然后按 [「二、部署」](#二部署) 里的说明把链接里的仓库地址换掉。
 
 ![浅色](screenshots/03-对话完成-浅色.png)
 
@@ -38,7 +42,45 @@ https://openrouter.ai/api/v1              → https://openrouter.ai/api/v1/chat/
 
 ## 二、部署
 
-### 方式 A：控制台连接 GitHub（推荐，自动创建 R2）
+### 方式 A：一键部署按钮（推荐，全程不用碰命令行）
+
+**前提**：本项目必须在一个 **公开的** GitHub 或 GitLab 仓库里 —— Cloudflare 的部署按钮不支持私有仓库，
+也不支持自建 Git 服务。
+
+**第一步：把按钮链接换成你的仓库地址**
+
+```markdown
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/你的用户名/你的仓库名)
+```
+
+把上面这段里的 `https://github.com/你的用户名/你的仓库名` 换成你的真实仓库地址，
+粘到 README 顶部（或者你的博客、项目文档里）即可：
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourname/ai-chat-worker)
+
+> 💡 已经用 Workers Builds 部署过一次的话，可以直接去控制台该 Worker 的详情页点「分享」按钮，
+> 复制 Cloudflare 官方生成的片段，就不用自己拼 URL 了。
+
+**第二步：点按钮，四步走完**
+
+| 步骤 | Cloudflare 会做什么 | 你需要做什么 |
+| --- | --- | --- |
+| 1. 克隆仓库 | 把项目复制一份到你自己的 GitHub/GitLab 账号下（之后可以在自己仓库里继续改） | 授权 GitHub App |
+| 2. 配置项目 | 显示 Worker 名称、仓库名、**R2 桶名** | 想改就改，不改用默认值 |
+| 3. 填写变量 | 读取仓库里的 `.dev.vars.example`，自动生成 `API_URL` / `API_KEY` / `MODEL` 三个填写框，并加密存为 Secret | 把 `API_KEY` 换成你自己的 |
+| 4. 构建部署 | 跑 `npm install` → `npx wrangler deploy`，**自动创建 R2 桶并绑定**，然后返回一个可访问的地址 | 等它跑完，点开就能用 |
+
+全程不用提前去控制台建 R2，也不用配绑定 —— Cloudflare 会读 `wrangler.jsonc` 自己搞定。
+
+> ⚠️ **首次使用 R2 的账号，请先手动开通一次 R2**（Dashboard → R2 页面 → 点一次同意条款）。
+> 否则自动创建桶会失败，这是这类部署最常见的失败原因。
+
+部署完成后想换模型、加访问密码、换服务商，去 **Dashboard → 该 Worker → Settings → Variables and Secrets**
+改完再重新部署一次即可。
+
+### 方式 B：控制台连接 GitHub（手动版）
+
+和方式 A 等价，只是自己填一遍配置：
 
 1. 把本项目推到一个 GitHub 仓库。
 2. 打开 **Cloudflare Dashboard → Workers & Pages → Create → Workers → Connect to Git**，选中该仓库。
@@ -68,7 +110,7 @@ R2 桶不需要你手动创建 —— `wrangler.jsonc` 里写的是：
 >    要先去 Dashboard 把桶名复制回来填进 `bucket_name`，否则 wrangler 会当成「没配」再创建一套新的，
 >    你会以为「线上数据丢了」。
 
-### 方式 B：本地 CLI
+### 方式 C：本地 CLI
 
 ```bash
 npm install
@@ -89,6 +131,9 @@ npm run dev                      # http://localhost:8787
 
 本地 `wrangler dev` 会自动创建一个**本地**的 R2（存在 `.wrangler/` 目录），不会碰线上数据。
 
+> 📌 `.dev.vars.example` 不只是给本地开发用的 —— **「Deploy to Cloudflare」按钮会读它**，
+> 按里面的变量名在部署页生成填写框。所以这个文件请保持 dotenv 格式，变量名别写错。
+
 ### 部署前自检
 
 ```bash
@@ -103,11 +148,11 @@ npm run check
 
 ```
 ├── wrangler.jsonc          部署配置（R2 自动创建的关键就在这里）
-├── package.json
+├── package.json            含 cloudflare.bindings，给部署页的变量加说明文案
 ├── src/index.js            Worker 后端：路由、R2 读写、SSE 流式转发
 ├── public/index.html       前端单页（HTML + CSS + JS 全在一个文件里）
 ├── screenshots/            界面截图
-└── .dev.vars.example       本地开发的环境变量模板
+└── .dev.vars.example       本地开发变量模板 + 部署按钮的变量清单
 ```
 
 R2 里的数据结构：
@@ -177,3 +222,18 @@ R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是�
 **想换用别的模型服务商**
 只要对方兼容 OpenAI 的 `/chat/completions` 协议（DeepSeek、Kimi、通义、智谱、OpenRouter、硅基流动等），
 改 `API_URL` + `API_KEY` + `MODEL` 三个变量即可，代码不用动。
+
+**点了部署按钮没反应 / 提示找不到仓库**
+仓库必须是**公开**的 GitHub 或 GitLab 仓库。私有仓库、自建 Git、以及非 GitHub/GitLab 的仓库都不支持。
+
+**部署页上没有出现变量填写框**
+Cloudflare 是靠读取仓库根目录的 `.dev.vars.example` 来生成填写框的，确认这个文件存在且是 dotenv 格式
+（`KEY=value`，一行一个，变量名不要改）。实在没有也可以在部署完成后去
+**Settings → Variables and Secrets** 手动加。
+
+**部署页上的构建命令是空的**
+`package.json` 里已经有 `build` 和 `deploy` 两个脚本，Cloudflare 会自动读出来预填
+（`npm install` / `wrangler deploy`）。如果没读到，手动填上这两个即可。
+
+**想改部署页上变量填写框旁边的说明文案**
+改 `package.json` 里的 `cloudflare.bindings` 字段，支持 `code`、**加粗**、[链接](https://example.com) 这类内联 markdown。
