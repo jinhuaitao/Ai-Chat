@@ -1,5 +1,6 @@
 # AI Chat —— 部署在 Cloudflare Workers 上的 Web 版 AI
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jinhuaitao/Ai-Chat)
 
 一个 ChatGPT 风格的对话应用，整个后端就是一个 Worker + 一个 R2 桶。
 **部署时 R2 会自动创建、自动绑定**，你只需要填三个环境变量。
@@ -9,10 +10,12 @@
 - 存储：Cloudflare R2，存会话列表与全部对话历史
 - 流式：逐字返回；中途点「停止」时已生成的部分也会落盘
 - 消息操作用内联 SVG 图标（复制 / 重新生成），复制成功会变成对勾
+- **重新部署不会丢环境变量**：部署脚本带 `--keep-vars`，且配置缺失时页面会直接弹横幅说明原因
 
 > 👆 点上面这个按钮，Cloudflare 会自动克隆仓库、创建并绑定 R2、构建部署，全程不用碰命令行。
 > 详细说明见 [「二、部署」](#二部署)。
 
+![浅色](screenshots/03-对话完成-浅色.png)
 
 ---
 
@@ -27,6 +30,48 @@
 | `SYSTEM_PROMPT` | | 系统提示词 | `You are a helpful assistant.` |
 | `SITE_TITLE` | | 页面标题 | `我的 AI` |
 | `ACCESS_PASSWORD` | | 访问密码。**设了就必须先输密码**，不设则完全公开 | `my-secret` |
+
+### ⚠️ 环境变量一定要存成 Secret，否则重新部署会丢
+
+这是 Cloudflare Workers 最容易踩、也最难排查的一个坑，先讲清楚：
+
+> `wrangler deploy` 默认会**先删掉 Worker 上所有「明文（Text）」变量**，再写入
+> `wrangler.jsonc` 里 `vars` 声明的那些。所以**只在 Dashboard 里加的明文变量，
+> 每次重新部署都会被清空**。而 **Secret（加密）类型的变量永远不会被部署删除**。
+
+这是 wrangler 自己的帮助文本（`npx wrangler deploy --help`）：
+
+```
+--keep-vars    When not used (or set to false), Wrangler will delete all vars before
+               setting those found in the Wrangler configuration.
+               When used (and set to true), the environment variables are not deleted
+               before the deployment.
+               If you set variables via the dashboard you probably want to use this flag.
+               Note that secrets are never deleted by deployments.   [default: false]
+```
+
+三种变量的命运，一张表看懂：
+
+| 变量放在哪 | 类型 | 重新部署后 |
+| --- | --- | --- |
+| Dashboard → Variables and Secrets | **Secret** | ✅ 保留（**推荐**） |
+| Dashboard → Variables and Secrets | Text（明文） | ❌ **被删除**，这就是「变量莫名其妙没了」的原因 |
+| `wrangler.jsonc` 的 `vars` | — | ✅ 每次部署重新写入 |
+| 部署按钮从 `.dev.vars.example` 收集的 | **Secret** | ✅ 保留 |
+
+**本项目做了两道防线：**
+
+1. `package.json` 的 `deploy` 脚本是 `wrangler deploy --keep-vars`，
+   跳过「先删」这一步。部署按钮会**自动读取这个脚本**去预填部署页的 Deploy command，
+   所以一键部署和 `npm run deploy` 都不会再清变量。
+2. 后端在 `/api/config` 里返回缺失的必填变量，前端会在页面顶部弹出醒目横幅，
+   直接告诉你「哪些变量没了、为什么没了、怎么修」——不用再对着 500 猜。
+
+**所以：后续要加变量（`MODELS`、`ACCESS_PASSWORD` 等），请在 Dashboard 里
+`Add` → 类型选 **Secret**。** 这样无论怎么重新部署都不会丢。
+
+> 如果你更希望配置「跟着代码走、可版本管理」，也可以取消 `wrangler.jsonc` 里 `vars`
+> 的注释直接写进去。代价是它**会覆盖 Dashboard 上的同名变量**，改配置就得改代码重新提交。
 
 ### 给模型起自定义名字
 
@@ -90,7 +135,7 @@ Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务�
 | 1. 克隆仓库 | 把项目复制一份到你自己的 GitHub/GitLab 账号下（之后可以在自己仓库里继续改） | 授权 GitHub App |
 | 2. 配置项目 | 显示 Worker 名称、仓库名、**R2 桶名** | 想改就改，不改用默认值 |
 | 3. 填写变量 | 读取仓库里的 `.dev.vars.example`，自动生成 `API_URL` / `API_KEY` / `MODEL` 三个填写框，并加密存为 Secret | 把 `API_KEY` 换成你自己的 |
-| 4. 构建部署 | 跑 `npm install` → `npx wrangler deploy`，**自动创建 R2 桶并绑定**，然后返回一个可访问的地址 | 等它跑完，点开就能用 |
+| 4. 构建部署 | 跑 `npm install` → `wrangler deploy --keep-vars`，**自动创建 R2 桶并绑定**，然后返回一个可访问的地址 | 等它跑完，点开就能用 |
 
 全程不用提前去控制台建 R2，也不用配绑定 —— Cloudflare 会读 `wrangler.jsonc` 自己搞定。
 
@@ -98,7 +143,7 @@ Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务�
 > 否则自动创建桶会失败，这是这类部署最常见的失败原因。
 
 部署完成后想换模型、加访问密码、换服务商，去 **Dashboard → 该 Worker → Settings → Variables and Secrets**
-改完再重新部署一次即可。
+改即可，**不需要重新部署**；加了新变量时记得类型选 **Secret**（原因见上一节）。
 
 ### 方式 B：控制台连接 GitHub（手动版）
 
@@ -112,9 +157,15 @@ Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务�
    | --- | --- |
    | Project name | **必须与 `wrangler.jsonc` 里的 `name` 完全一致**（默认 `ai-chat-worker`） |
    | Build command | `npm install` |
-   | Deploy command | `npx wrangler deploy` |
+   | Deploy command | `npx wrangler deploy --keep-vars` |
 
-4. 部署完成后，去 **Settings → Variables and Secrets** 添加 `API_URL`、`API_KEY`（点 **Encrypt** 存成 Secret）、`MODEL` 等，然后重新部署一次让变量生效。
+   > ⚠️ 部署命令末尾的 **`--keep-vars` 不能省**。Workers Builds 的部署命令默认是
+   > `npx wrangler deploy`，而它会把 Dashboard 上的明文变量全部删掉。加上这个 flag 才会保留。
+   > 顺带一提，Cloudflare 会自动读取 `package.json` 的 `deploy` 脚本预填这一栏，本项目已经写好了。
+
+4. 部署完成后，去 **Settings → Variables and Secrets** 添加 `API_URL`、`API_KEY`、`MODEL` 等，
+   **类型请选 `Secret`（加密）**。选 Secret 的话改完立即生效，不需要重新部署；
+   如果选了 `Text`（明文），下一次部署就会被删掉。
 
 R2 桶不需要你手动创建 —— `wrangler.jsonc` 里写的是：
 
@@ -137,12 +188,17 @@ R2 桶不需要你手动创建 —— `wrangler.jsonc` 里写的是：
 ```bash
 npm install
 npx wrangler login
-npx wrangler secret put API_KEY     # 密钥走 Secret
-npx wrangler deploy                 # 首次部署会自动创建 R2 并绑定，并把桶名写回配置
+npx wrangler secret put API_KEY     # 密钥走 Secret（Secret 永不被部署删除）
+npx wrangler secret put API_URL
+npx wrangler secret put MODEL
+npm run deploy                      # = wrangler deploy --keep-vars
 ```
 
-`API_URL` / `MODEL` 这类非密钥可以 `npx wrangler secret put API_URL`，
-也可以取消 `wrangler.jsonc` 里 `vars` 的注释后直接写进去。
+用 `npm run deploy` 而不是裸的 `npx wrangler deploy` —— 前者带 `--keep-vars`，
+不会把你在 Dashboard 上加的变量删掉（原因见 [「环境变量一定要存成 Secret」](#️-环境变量一定要存成-secret否则重新部署会丢)）。
+
+`API_URL` / `MODEL` 这类非密钥可以走 `wrangler secret put`，
+也可以取消 `wrangler.jsonc` 里 `vars` 的注释后直接写进去（但会覆盖 Dashboard 上的同名变量）。
 
 ### 本地开发
 
@@ -170,7 +226,7 @@ npm run check
 
 ```
 ├── wrangler.jsonc          部署配置（R2 自动创建的关键就在这里）
-├── package.json            含 cloudflare.bindings，给部署页的变量加说明文案
+├── package.json            deploy 脚本带 --keep-vars，防止重新部署清空变量
 ├── src/index.js            Worker 后端：路由、R2 读写、SSE 流式转发
 ├── public/index.html       前端单页（HTML + CSS + JS 全在一个文件里）
 ├── screenshots/            界面截图
@@ -215,9 +271,14 @@ login_fail/<ip>.json 登录失败限流记录
     { "id": "deepseek-reasoner", "label": "DeepSeek R1" }
   ],
   "defaultModel": "deepseek-chat",
+  "missing": [],
+  "missingHint": "",
   "endpointHost": "api.deepseek.com"
 }
 ```
+
+`missing` 是缺失的必填变量名数组（正常情况下为空）。**变量被部署清空时前端靠它弹横幅提示**，
+排查配置问题可以直接 `curl https://<你的地址>/api/config` 看一眼。
 
 `/api/chat` 的 SSE 事件：
 
@@ -245,8 +306,29 @@ data: {"type":"done","conversationId":"...","title":"...","messageCount":2}
   同时用 `stroke="currentColor"` 让图标自动跟随主题色。图标按钮的 `title` 和 `aria-label` 都写全，
   鼠标悬停能看懂、读屏软件也能读出来。
 - **无任何外部 CDN 依赖**，离线也能打开界面，也不受第三方 CDN 可用性影响。
+- **配置错误尽量自己说清楚。** `wrangler deploy` 会静默删掉 Dashboard 上的明文变量，
+  症状是「页面能打开、一发消息就 500」，非常难定位。所以 `/api/config` 会返回缺失的必填变量，
+  前端顶部弹出横幅写明缺什么、为什么被删、怎么修。宁可多写这几行，也不想让人对着 500 猜。
 
 ## 六、常见问题
+
+**重新部署后，之前配好的环境变量全没了**
+
+这是 wrangler 的默认行为，不是 bug：**`wrangler deploy` 会先删掉 Worker 上所有「明文（Text）」变量，
+再写入 `wrangler.jsonc` 的 `vars`**。只在 Dashboard 上加的明文变量，每次部署都会被清掉；
+**Secret 类型则永远不会被删。**
+
+三种修法，任选其一（推荐第 1 种）：
+
+1. **把变量存成 Secret**。Dashboard → 该 Worker → Settings → Variables and Secrets → `Add`，
+   类型选 **Secret**。这是最省心的做法，部署按钮创建的变量本来就是 Secret。
+2. **用 `wrangler deploy --keep-vars` 部署**。本项目 `package.json` 的 `deploy` 脚本已经是这个，
+   所以 `npm run deploy` 不会清变量；Workers Builds 的话去 Settings → Build 把
+   Deploy command 改成 `npx wrangler deploy --keep-vars`（部署按钮会自动预填这一栏）。
+3. **写进 `wrangler.jsonc` 的 `vars`**，让配置跟着代码走。注意它会**覆盖** Dashboard 上的同名变量。
+
+> 怎么快速确认是这个问题？打开页面，如果顶部出现黄色横幅写着「服务端缺少配置」，
+> 并把缺失的变量名列了出来，那就是它。
 
 **部署成功但打开是 500，提示 `binding_missing`**
 R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是否叫 `CHAT_BUCKET`，然后重新部署。
@@ -256,6 +338,9 @@ R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是�
 
 **发消息提示「上游接口返回 401」**
 `API_KEY` 不对，或者 `API_URL` 指错了服务商。检查 Variables and Secrets 里变量名有没有拼错。
+
+**发消息提示「缺少环境变量：API_URL」**
+说明变量被部署清掉了，或者压根没配。修法见上面第一条。页面上会有同样的横幅提示。
 
 **模型下拉框是空的 / 只有一个**
 `MODELS` 没配时会退化成只有 `MODEL` 一个。想看多个模型就配 `MODELS=a,b,c`。

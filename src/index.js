@@ -27,6 +27,12 @@
  *   SYSTEM_PROMPT    系统提示词（可选）
  *   SITE_TITLE       站点标题（可选）
  *   ACCESS_PASSWORD  访问密码（可选，设置后需要登录）
+ *
+ * ⚠️ 变量为什么会「重新部署后就没了」
+ *   wrangler deploy 默认会先把 Worker 上所有【明文】变量删掉，再写入 wrangler.jsonc 的 vars。
+ *   所以只在 Dashboard 里加的明文变量，每次部署都会被清空；而【Secret】类型永远不会被删。
+ *   本项目两道防线：package.json 的 deploy 脚本带 --keep-vars；并且建议全部存成 Secret。
+ *   为了不让人对着 500 猜半天，/api/config 会把缺失的必填变量直接报出来（见 missingVars）。
  */
 
 import CHAT_HTML from '../public/index.html';
@@ -224,6 +230,38 @@ function systemPrompt(env) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 配置自检                                                            */
+/* ------------------------------------------------------------------ */
+
+const REQUIRED_VARS = ['API_URL', 'API_KEY'];
+
+/** 读变量并去掉首尾空白，顺带把 undefined/null 归一成空串 */
+function readVar(env, name) {
+  const value = env[name];
+  return String(value == null ? '' : value).trim();
+}
+
+/**
+ * 列出缺失的必填环境变量。
+ *
+ * 这个函数存在的唯一理由，是让「重新部署后变量没了」这个故障自己说清楚。
+ * 变量被清空时 Worker 本身照常启动、页面也照常打开，只有发消息那一刻才 500，
+ * 用户很难意识到是变量被删了。这里把缺失项报给前端，前端就能直接弹提示。
+ */
+function missingVars(env) {
+  return REQUIRED_VARS.filter((name) => !readVar(env, name));
+}
+
+const VARS_FIX_HINT =
+  '去 Cloudflare Dashboard → 该 Worker → Settings → Variables and Secrets 添加，' +
+  '类型请选 Secret（加密）。选 Text（明文）的变量会在每次 wrangler deploy 时被删除，' +
+  '这正是「重新部署后变量就没了」的原因。';
+
+function missingVarsMessage(names) {
+  return '缺少环境变量：' + names.join('、') + '。' + VARS_FIX_HINT;
+}
+
+/* ------------------------------------------------------------------ */
 /* 访问密码 / 会话                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -288,12 +326,16 @@ async function handleConfig(request, env) {
   if (auth.required && !auth.ok) {
     return json({ needsAuth: true, authed: false, title: siteTitle(env) }, 401);
   }
+  const missing = missingVars(env);
   return json({
     needsAuth: auth.required,
     authed: true,
     title: siteTitle(env),
     models,
     defaultModel: models[0].id,
+    // 缺失的必填变量。前端据此显示醒目提示，避免用户对着 500 猜原因。
+    missing,
+    missingHint: missing.length ? VARS_FIX_HINT : '',
     endpointHost: (() => {
       try {
         return new URL(resolveEndpoint(env.API_URL)).host;
@@ -417,8 +459,8 @@ async function handleChat(request, env) {
   if (text.length > MAX_MESSAGE_CHARS) return fail('消息过长（上限 ' + MAX_MESSAGE_CHARS + ' 字符）');
 
   const endpoint = resolveEndpoint(env.API_URL);
-  if (!endpoint) return fail('未配置 API_URL 环境变量', 500, 'missing_api_url');
-  if (!env.API_KEY) return fail('未配置 API_KEY 环境变量', 500, 'missing_api_key');
+  if (!endpoint) return fail(missingVarsMessage(['API_URL']), 500, 'missing_api_url');
+  if (!env.API_KEY) return fail(missingVarsMessage(['API_KEY']), 500, 'missing_api_key');
 
   // 载入或新建会话
   let conv = null;

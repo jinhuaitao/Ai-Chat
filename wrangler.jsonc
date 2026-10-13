@@ -17,9 +17,20 @@
   // 如果之后想用已有的桶，把 bucket_name 填上即可（例如 "bucket_name": "my-chat-bucket"）。
   "r2_buckets": [{ "binding": "CHAT_BUCKET" }],
 
-  // 公开配置可以写在这里，也可以去 Dashboard → Settings → Variables and Secrets 配。
-  // 注意：这里写过的变量会覆盖 Dashboard 上的同名变量，所以宁可注释掉、让用户在 Dashboard 里配。
-  // API_KEY / ACCESS_PASSWORD 属于密钥，请务必走 Dashboard 的 Secret（或 wrangler secret put）。
+  // ⚠️ 关于环境变量，这里有一条容易踩的坑，务必读完：
+  //
+  //   wrangler deploy 默认会「先删掉所有明文变量，再写入本文件 vars 里声明的」。
+  //   也就是说：只在 Dashboard 里加的【明文】变量，每次重新部署都会被清空。
+  //   而【Secret（加密）】类型永远不会被部署删除 —— 部署按钮创建的变量就是 Secret。
+  //
+  //   所以本项目有两条防线：
+  //     1. package.json 的 deploy 脚本用的是 `wrangler deploy --keep-vars`，
+  //        它跳过「先删」这一步，Dashboard 上的变量就不会被清掉。
+  //     2. 所有变量都建议在 Dashboard 里存成 Secret 类型（部署按钮自动就是这么做的）。
+  //
+  //   下面这个 vars 块建议保持注释状态：一旦在这里写了同名变量，它会覆盖 Dashboard 上的值，
+  //   想改配置就得改代码重新提交，反而更麻烦。只有当你希望配置「跟着代码走、可版本管理」时，
+  //   才取消注释并填值。
   "vars": {
     // "MODEL": "gpt-4o-mini",
     // "MODELS": "gpt-4o-mini,gpt-4o",
