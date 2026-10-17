@@ -1026,14 +1026,18 @@ input:focus, textarea:focus {
   /**
    * 一个可折叠的思考框。用原生 <details>，展开/收起不写一行 JS，
    * 键盘（Tab + Enter）和读屏软件也天然可用。
+   *
+   * thinking = true 表示标签还没闭合、模型正在思考（显示脉冲点和「思考中…」）；
+   * false 表示思考已结束（显示箭头和字数）。两者都可能处于展开状态 ——
+   * 流式输出期间整条消息都保持展开，等回答结束才收起。
    */
-  function thinkBoxNode(text, live) {
+  function thinkBoxNode(text, thinking) {
     var box = document.createElement('details');
     box.className = 'think-box';
 
     var summary = document.createElement('summary');
 
-    if (live) {
+    if (thinking) {
       var dot = document.createElement('span');
       dot.className = 'think-dot';
       summary.appendChild(dot);
@@ -1046,13 +1050,13 @@ input:focus, textarea:focus {
 
     var label = document.createElement('span');
     label.className = 'think-label';
-    label.textContent = live ? '思考中…' : '思考过程';
+    label.textContent = thinking ? '思考中…' : '思考过程';
     summary.appendChild(label);
 
     var meta = document.createElement('span');
     meta.className = 'think-meta';
     var chars = String(text || '').replace(/\s+/g, '').length;
-    meta.textContent = live ? '' : '· ' + chars + ' 字';
+    meta.textContent = thinking ? '' : '· ' + chars + ' 字';
     summary.appendChild(meta);
 
     var body = document.createElement('div');
@@ -1083,10 +1087,16 @@ input:focus, textarea:focus {
     var keepOpen = el.__thinkOpen;
     parts.blocks.forEach(function (text, i) {
       var isLast = i === parts.blocks.length - 1;
-      var live = !!streaming && isLast && parts.open;
-      var box = thinkBoxNode(text, live);
-      // 没手动开合过：正在思考的块展开，已经结束的块收起
-      box.open = typeof keepOpen === 'boolean' ? keepOpen : live;
+      // 两个状态要分开：
+      //   thinking     —— 标签还没闭合，模型正在思考（显示「思考中…」+ 脉冲点）
+      //   openByDefault —— 整条消息还在流式输出，思考块默认展开
+      // 以前把两者混成一个 live，导致 </think> 一出现框就合上；
+      // 那时回答还在打字，页面会突然往上跳一下。现在等整条回答结束才收起。
+      var thinking = !!streaming && isLast && parts.open;
+      var openByDefault = !!streaming && isLast;
+      var box = thinkBoxNode(text, thinking);
+      // 没手动开合过：流式期间展开，结束后收起
+      box.open = typeof keepOpen === 'boolean' ? keepOpen : openByDefault;
       // 用 click 而不是 toggle 记状态：toggle 对「程序化设置 open」也会触发，
       // 流式时每帧都在设 open，用它会把默认展开误记成「用户手动展开」，
       // 结果流式结束后框再也收不起来。
