@@ -9,7 +9,8 @@
 - 存储：Cloudflare R2，存会话列表与全部对话历史
 - 流式：逐字返回；中途点「停止」时已生成的部分也会落盘
 - 消息操作用内联 SVG 图标（复制 / 重新生成），复制成功会变成对勾
-- **重新部署不会丢环境变量**：部署脚本带 `--keep-vars`，且配置缺失时页面会直接弹横幅说明原因
+- **重新部署不会丢环境变量**：变量按本项目说明存成 Secret 就删不掉，仓库带了 `.dev.vars.example`
+  让部署按钮直接以 Secret 收集；配置缺失时页面还会弹横幅说明缺哪几个、去哪补
 
 > 👆 点上面这个按钮，Cloudflare 会自动克隆仓库、创建并绑定 R2、构建部署，全程不用碰命令行。
 > 详细说明见 [「二、部署」](#二部署)。
@@ -56,13 +57,22 @@
 | `wrangler.jsonc` 的 `vars` | — | ✅ 每次部署重新写入 |
 | 部署按钮从 `.dev.vars.example` 收集的 | **Secret** | ✅ 保留 |
 
-**本项目做了两道防线：**
+**本项目做了三道防线：**
 
-1. `package.json` 的 `deploy` 脚本是 `wrangler deploy --keep-vars`，
-   跳过「先删」这一步。部署按钮会**自动读取这个脚本**去预填部署页的 Deploy command，
-   所以一键部署和 `npm run deploy` 都不会再清变量。
-2. 后端在 `/api/config` 里返回缺失的必填变量，前端会在页面顶部弹出醒目横幅，
+1. **所有变量都存成 Secret 类型。** 这是唯一在任何部署路径下都不会被删的做法。
+   仓库根目录的 `.dev.vars.example` 会让部署按钮生成填写框，收集到的值以 Secret 写入；
+   自己在 Dashboard 加变量时也同样选 Secret。
+2. `package.json` 的 `deploy` 脚本是 `wrangler deploy --keep-vars`，本地 `npm run deploy` 不会清变量。
+3. 后端在 `/api/config` 里返回缺失的必填变量，前端会在页面顶部弹出醒目横幅，
    直接告诉你「哪些变量没了、为什么没了、怎么修」——不用再对着 500 猜。
+
+> ⚠️ **别把第 2 条当成保护伞。** Workers Builds（连接 GitHub 的自动构建）的 Deploy command
+> 默认就是 `npx wrangler deploy`，**不会**自动读取 `package.json` 里的脚本，部署按钮也不存在「自动预填」这回事。
+> 走 git 自动部署时，必须自己去 **Dashboard → 该 Worker → Settings → Build → Deploy command**
+> 手动填 `npm run deploy` 或 `npx wrangler deploy --keep-vars`，否则每次 push 都会清掉明文变量。
+>
+> 换句话说：`--keep-vars` 只在「你亲手敲这条命令」或「你已经在控制台把这条命令配好」时才生效。
+> 真正稳的做法是把变量全存成 Secret —— 那样部署命令是什么都不影响。
 
 **所以：后续要加变量（`MODELS`、`ACCESS_PASSWORD` 等），请在 Dashboard 里
 `Add` → 类型选 **Secret**。** 这样无论怎么重新部署都不会丢。
@@ -132,9 +142,18 @@ Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务�
 | 1. 克隆仓库 | 把项目复制一份到你自己的 GitHub/GitLab 账号下（之后可以在自己仓库里继续改） | 授权 GitHub App |
 | 2. 配置项目 | 显示 Worker 名称、仓库名、**R2 桶名** | 想改就改，不改用默认值 |
 | 3. 填写变量 | 读取仓库里的 `.dev.vars.example`，自动生成 `API_URL` / `API_KEY` / `MODEL` 三个填写框，并加密存为 Secret | 把 `API_KEY` 换成你自己的 |
-| 4. 构建部署 | 跑 `npm install` → `wrangler deploy --keep-vars`，**自动创建 R2 桶并绑定**，然后返回一个可访问的地址 | 等它跑完，点开就能用 |
+| 4. 构建部署 | 跑构建命令后部署，**自动创建 R2 桶并绑定**，然后返回一个可访问的地址 | 等它跑完，点开就能用；**顺手去把 Deploy command 改成 `npm run deploy`（见下方提示）** |
 
 全程不用提前去控制台建 R2，也不用配绑定 —— Cloudflare 会读 `wrangler.jsonc` 自己搞定。
+
+> ⚠️ **部署按钮不会替你把 `--keep-vars` 配好。** 它给你建出来的自动部署（控制台 Workers Builds，
+> 或你 fork 里的 GitHub Actions）默认跑的是 `npx wrangler deploy`。首次部署时 Worker 上还没有变量，
+> 看不出问题；等你在 Dashboard 加了明文变量、再 push 一次代码，变量就被清了。
+> 所以部署成功后的第一件事，是把它改成带 `--keep-vars` 的命令：
+> **该 Worker → Settings → Build → Deploy command** 填 `npm run deploy`；
+> 如果你 fork 的仓库里有 `.github/workflows/deploy.yml`，就把里面那行
+> `npx wrangler deploy` 改成 `npx wrangler deploy --keep-vars`。
+> 或者干脆把变量都存成 **Secret** —— 那样默认命令也删不掉它们，这是最省心的做法。
 
 > ⚠️ **首次使用 R2 的账号，请先手动开通一次 R2**（Dashboard → R2 页面 → 点一次同意条款）。
 > 否则自动创建桶会失败，这是这类部署最常见的失败原因。
@@ -158,7 +177,8 @@ Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务�
 
    > ⚠️ 部署命令末尾的 **`--keep-vars` 不能省**。Workers Builds 的部署命令默认是
    > `npx wrangler deploy`，而它会把 Dashboard 上的明文变量全部删掉。加上这个 flag 才会保留。
-   > 顺带一提，Cloudflare 会自动读取 `package.json` 的 `deploy` 脚本预填这一栏，本项目已经写好了。
+   > 注意这一栏**不会**自动读取 `package.json` 的脚本，必须自己填；
+   > 填 `npm run deploy` 效果一样（本项目的 `deploy` 脚本已经是 `wrangler deploy --keep-vars`）。
 
 4. 部署完成后，去 **Settings → Variables and Secrets** 添加 `API_URL`、`API_KEY`、`MODEL` 等，
    **类型请选 `Secret`（加密）**。选 Secret 的话改完立即生效，不需要重新部署；
@@ -223,11 +243,11 @@ npm run check
 
 ```
 ├── wrangler.jsonc          部署配置（R2 自动创建的关键就在这里）
-├── package.json            deploy 脚本带 --keep-vars，防止重新部署清空变量
+├── package.json            deploy 脚本带 --keep-vars；需手动配到 Deploy command 才对自动构建生效
+├── .dev.vars.example       本地开发变量模板 + 部署按钮的变量清单（缺失会导致部署页没有填写框）
+├── .gitignore              忽略 .dev.vars / node_modules / .wrangler（公开仓库，防泄露 Key）
 ├── src/index.js            Worker 后端：路由、R2 读写、SSE 流式转发
-├── public/index.html       前端单页（HTML + CSS + JS 全在一个文件里）
-├── screenshots/            界面截图
-└── .dev.vars.example       本地开发变量模板 + 部署按钮的变量清单
+└── public/index.html       前端单页（HTML + CSS + JS 全在一个文件里）
 ```
 
 R2 里的数据结构：
@@ -321,11 +341,13 @@ data: {"type":"done","conversationId":"...","title":"...","messageCount":2}
    类型选 **Secret**。这是最省心的做法，部署按钮创建的变量本来就是 Secret。
 2. **用 `wrangler deploy --keep-vars` 部署**。本项目 `package.json` 的 `deploy` 脚本已经是这个，
    所以 `npm run deploy` 不会清变量；Workers Builds 的话去 Settings → Build 把
-   Deploy command 改成 `npx wrangler deploy --keep-vars`（部署按钮会自动预填这一栏）。
+   Deploy command 改成 `npx wrangler deploy --keep-vars` —— **这一栏默认是 `npx wrangler deploy`，
+   需要你自己改，Cloudflare 不会读 `package.json` 去预填**。GitHub Actions 的话改
+   `.github/workflows/deploy.yml` 里的那条命令。
 3. **写进 `wrangler.jsonc` 的 `vars`**，让配置跟着代码走。注意它会**覆盖** Dashboard 上的同名变量。
 
 > 怎么快速确认是这个问题？打开页面，如果顶部出现黄色横幅写着「服务端缺少配置」，
-> 并把缺失的变量名列了出来，那就是它。
+> 并把缺失的变量名列了出来，那就是它。也可以直接 `curl https://<你的地址>/api/config` 看 `missing` 数组。
 
 **部署成功但打开是 500，提示 `binding_missing`**
 R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是否叫 `CHAT_BUCKET`，然后重新部署。
@@ -359,13 +381,17 @@ R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是�
 仓库必须是**公开**的 GitHub 或 GitLab 仓库。私有仓库、自建 Git、以及非 GitHub/GitLab 的仓库都不支持。
 
 **部署页上没有出现变量填写框**
-Cloudflare 是靠读取仓库根目录的 `.dev.vars.example` 来生成填写框的，确认这个文件存在且是 dotenv 格式
-（`KEY=value`，一行一个，变量名不要改）。实在没有也可以在部署完成后去
-**Settings → Variables and Secrets** 手动加。
+Cloudflare 是靠读取仓库根目录的 `.dev.vars.example` 来生成填写框的（本仓库已经带上这个文件），
+必须是 dotenv 格式：`KEY=value`，一行一个，变量名别改，**注释掉的不生成填写框**。
+改了仓库里的这个文件之后要重新走一遍部署按钮才生效。
+也可以在部署完成后去 **Settings → Variables and Secrets** 手动加（记得选 Secret）。
 
 **部署页上的构建命令是空的**
-`package.json` 里已经有 `build` 和 `deploy` 两个脚本，Cloudflare 会自动读出来预填
-（`npm install` / `wrangler deploy`）。如果没读到，手动填上这两个即可。
+自己填：Build command `npm install`，Deploy command `npm run deploy`。
+别指望 Cloudflare 自动从 `package.json` 读脚本预填 —— 它的 Deploy command 默认只是
+`npx wrangler deploy`，**不带 `--keep-vars`**，这一栏必须手动改（见上面第一条常见问题）。
 
 **想改部署页上变量填写框旁边的说明文案**
-改 `package.json` 里的 `cloudflare.bindings` 字段，支持 `code`、**加粗**、[链接](https://example.com) 这类内联 markdown。
+试用 `package.json` 里的 `cloudflare.bindings` 字段，支持 `code`、**加粗**、[链接](https://example.com) 这类内联 markdown。
+这个字段只是给部署页加注释用，Worker 真正读的还是 `.dev.vars.example` 里的变量名，两者名字务必对齐；
+部署页没显示文案也不影响功能，以实际页面为准。
