@@ -85,7 +85,6 @@
 `MODEL` 和 `MODELS` 的每一项都支持 `模型id:显示名` 的写法。**提交给上游接口的始终是真实模型 id，
 只有界面上显示的是你起的名字**：
 
-
 ```
 MODELS=deepseek-chat:DeepSeek V3,deepseek-reasoner:DeepSeek R1,gpt-4o:GPT-4o
 ```
