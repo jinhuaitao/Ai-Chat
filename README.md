@@ -208,6 +208,10 @@ npm run dev                      # http://localhost:8787
 
 > 📌 `.dev.vars.example` 不只是给本地开发用的 —— **「Deploy to Cloudflare」按钮会读它**，
 > 按里面的变量名在部署页生成填写框。所以这个文件请保持 dotenv 格式，变量名别写错。
+>
+> 该文件只列 `API_URL` / `API_KEY` / `MODEL` 三项，这是故意的：可选项如果以**空值**出现在这里，
+> 部署按钮会把空串写成变量并覆盖代码默认值（例如 `SYSTEM_PROMPT=` 会让系统提示词彻底失效，
+> 而不是回退到默认那句）。可选项请在部署完成后去 Dashboard 以 Secret 类型添加。
 
 ### 部署前自检
 
@@ -294,8 +298,9 @@ data: {"type":"done","conversationId":"...","title":"...","messageCount":2}
   公开分享的地址强烈建议设上。密码用 SHA-256 比对（恒定时间），登录失败按 IP 限流（10 分钟内 8 次）。
 - **登录态不跳转。** 未登录时 `/` 照常返回页面，由前端调 `/api/config` 拿到 401 后弹出登录层。
   这样 API 永远不会返回 HTML，前端 `res.json()` 不会解析到一坨 HTML 再被 catch 吞掉。
-- **流式中断也保存。** 点「停止」或关闭页面时，Worker 的 `TransformStream.cancel` 会把已生成的部分写入 R2，
-  刷新后还能看到，并能从最后一条消息「重新生成」。
+- **流式中断也保存。** 点「停止」或关闭页面时，落盘由 `ctx.waitUntil()` 兜底保证完成
+  （不是靠 `cancel()` 里的 `await`——断开后 Worker 不再等待它），
+  同时 abort 上游请求，不再继续烧额度。刷新后还能看到，并能从最后一条消息「重新生成」。
 - **用户消息先落盘再请求上游。** 上游挂了也不会丢用户输入。
 - **前端渲染全部走 `createElement` + `textContent`**，Markdown 渲染器先做 HTML 转义再套用格式，
   `javascript:` 之类的伪协议链接不会被转换成 `<a>`。
