@@ -1213,9 +1213,10 @@ input:focus, textarea:focus {
   /**
    * 渲染「配置缺失」横幅。
    *
-   * 场景：wrangler deploy 默认会删掉 Dashboard 上的明文变量，导致重新部署后 API_URL / API_KEY
-   * 消失。此时页面本身还能打开，只有发消息才报错，非常难排查。后端把缺失项放在 /api/config
-   * 里返回，这里直接摊开讲清楚原因和修法。
+   * 场景：wrangler deploy 上传的是完整新版本，bindings 是全量替换，所以 Dashboard 上的
+   * 明文变量默认不会被带回去 —— 重新部署后 API_URL / API_KEY 就消失了。
+   * 此时页面本身还能打开，只有发消息才报错，非常难排查。
+   * 后端把缺失项和对应修法放在 /api/config 里返回，这里直接摊开讲清楚。
    */
   function renderWarnBanner() {
     var banner = $('#warnBanner');
@@ -1225,14 +1226,37 @@ input:focus, textarea:focus {
     }
 
     var names = state.missing.map(function (n) { return '<code>' + escapeHtml(n) + '</code>'; }).join('、');
-    $('#warnTitle').textContent = '服务端缺少配置，暂时无法对话';
-    $('#warnText').innerHTML =
-      '缺少环境变量：' + names + '。<br>' +
+
+    // 服务端会按缺失类型给修法（缺变量和缺 R2 绑定是两回事，修法完全不同），优先用它；
+    // 拿不到时退回下面这段兜底文案。
+    var fallback =
       '如果你之前配过，多半是重新部署时被清掉了 —— <code>wrangler deploy</code> 默认会删除' +
       '所有「明文（Text）」类型的变量，而「Secret（加密）」类型不受影响。<br>' +
       '修法：去 Cloudflare Dashboard → 该 Worker → <b>Settings → Variables and Secrets</b>，' +
       '重新添加并<b>把类型选成 Secret</b>；或用 <code>wrangler deploy --keep-vars</code> 部署。';
+
+    $('#warnTitle').textContent = '服务端缺少配置，暂时无法对话';
+    $('#warnText').innerHTML =
+      '缺少：' + names + '。<br>' +
+      (state.missingHint ? escapeHtml(state.missingHint).replace(/\n/g, '<br>') : fallback);
     banner.classList.remove('hidden');
+  }
+
+  /**
+   * 兜底：配置接口本身失败（后端 500 / 断网 / 返回非 JSON）。
+   *
+   * 以前这里弹的是登录层，于是「R2 绑定丢了」会表现成「登录失败」，
+   * 用户在密码框前反复试密码。现在复用横幅，把原始错误直接摊在页面上。
+   */
+  function showFatal(message) {
+    state.missing = [];
+    hideLogin(); // 否则横幅会被登录浮层盖住
+    $('#warnTitle').textContent = '页面加载失败';
+    $('#warnText').innerHTML =
+      escapeHtml(message || '加载配置失败') +
+      '<br>这不一定是变量问题：<code>binding_missing</code> 说明 R2 绑定没生效，' +
+      '<code>internal_error</code> 要去 Worker 的实时日志里看。';
+    $('#warnBanner').classList.remove('hidden');
   }
 
   async function sendMessage(textOverride, keepCount) {
@@ -1619,8 +1643,8 @@ input:focus, textarea:focus {
       cfg = await api('/api/config');
     } catch (e) {
       if (e.status === 401) return; // showLogin 已由 api() 触发
-      $('#loginOverlay').classList.remove('hidden');
-      $('#loginError').textContent = e.message || '加载配置失败';
+      // 非鉴权类失败（500 / 断网 / 非 JSON）不能当登录问题处理，否则会误导用户去试密码
+      showFatal(e.message);
       return;
     }
 

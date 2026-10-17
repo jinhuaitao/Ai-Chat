@@ -29,10 +29,12 @@
  *   ACCESS_PASSWORD  访问密码（可选，设置后需要登录）
  *
  * ⚠️ 变量为什么会「重新部署后就没了」
- *   wrangler deploy 默认会先把 Worker 上所有【明文】变量删掉，再写入 wrangler.jsonc 的 vars。
- *   所以只在 Dashboard 里加的明文变量，每次部署都会被清空；而【Secret】类型永远不会被删。
- *   本项目两道防线：package.json 的 deploy 脚本带 --keep-vars；并且建议全部存成 Secret。
- *   为了不让人对着 500 猜半天，/api/config 会把缺失的必填变量直接报出来（见 missingVars）。
+ *   wrangler deploy 上传的是完整的新版本，metadata.bindings 是这个版本运行时的全部变量（全量替换）。
+ *   默认只带 wrangler.jsonc 的 vars，Dashboard 上的明文变量不会被带回，于是「没带上」= 「被删了」。
+ *   Secret 之所以不丢，是因为值只在 Cloudflare 侧，wrangler 会从线上旧版本把 secret_text 读回来一起传。
+ *   本项目的三道防线：wrangler.jsonc 的 keep_vars: true（配置级，覆盖面最广）、
+ *   package.json 的 deploy 脚本带 --keep-vars、以及建议全部存成 Secret。
+ *   为了不让人对着 500 猜半天，/api/config 会把缺失的变量直接报出来（见 missingVars）。
  */
 
 import CHAT_HTML from '../public/index.html';
@@ -234,6 +236,7 @@ function systemPrompt(env) {
 /* ------------------------------------------------------------------ */
 
 const REQUIRED_VARS = ['API_URL', 'API_KEY'];
+const REQUIRED_BINDINGS = ['CHAT_BUCKET'];
 
 /** 读变量并去掉首尾空白，顺带把 undefined/null 归一成空串 */
 function readVar(env, name) {
@@ -242,14 +245,21 @@ function readVar(env, name) {
 }
 
 /**
- * 列出缺失的必填环境变量。
+ * 列出缺失的运行依赖：必填变量 + 必填绑定。
  *
  * 这个函数存在的唯一理由，是让「重新部署后变量没了」这个故障自己说清楚。
  * 变量被清空时 Worker 本身照常启动、页面也照常打开，只有发消息那一刻才 500，
  * 用户很难意识到是变量被删了。这里把缺失项报给前端，前端就能直接弹提示。
+ *
+ * 注意：它只能证明「现在没有」，无法区分「被部署清空了」和「从来没配过」——
+ * 排错时要靠 Dashboard 上的变量类型（Text / Secret）和构建平台的 deploy 命令来判断。
  */
 function missingVars(env) {
-  return REQUIRED_VARS.filter((name) => !readVar(env, name));
+  const missing = REQUIRED_VARS.filter((name) => !readVar(env, name));
+  for (const name of REQUIRED_BINDINGS) {
+    if (!env[name]) missing.push(name);
+  }
+  return missing;
 }
 
 const VARS_FIX_HINT =
@@ -257,8 +267,21 @@ const VARS_FIX_HINT =
   '类型请选 Secret（加密）。选 Text（明文）的变量会在每次 wrangler deploy 时被删除，' +
   '这正是「重新部署后变量就没了」的原因。';
 
+const BINDING_FIX_HINT =
+  'R2 绑定 CHAT_BUCKET 不存在：确认 wrangler.jsonc 里的 r2_buckets 配置已生效并重新部署；' +
+  '首次使用 R2 的账号，需要先在 Dashboard 的 R2 页面点一次同意条款（否则自动创建桶会失败）。';
+
+/** 按缺失项的类型拼接对应的修法，变量和绑定要分开说，否则用户会去错的地方找 */
+function fixHint(names) {
+  const parts = [];
+  if (names.some((name) => REQUIRED_VARS.indexOf(name) >= 0)) parts.push(VARS_FIX_HINT);
+  if (names.indexOf('CHAT_BUCKET') >= 0) parts.push(BINDING_FIX_HINT);
+  // 用换行分隔，前端会渲染成两段；拼成一句话会太长，读起来费劲
+  return parts.join('\n');
+}
+
 function missingVarsMessage(names) {
-  return '缺少环境变量：' + names.join('、') + '。' + VARS_FIX_HINT;
+  return '缺少环境变量：' + names.join('、') + '。' + fixHint(names);
 }
 
 /* ------------------------------------------------------------------ */
@@ -321,7 +344,9 @@ async function throttleKey(env, request) {
 /* ------------------------------------------------------------------ */
 
 async function handleConfig(request, env) {
-  const auth = await authState(env, request);
+  // R2 缺失时读不了会话文件，硬算会抛异常，反而把「缺绑定」这个真正的故障盖掉。
+  // 这里直接跳过鉴权判断，让配置接口永远能返回一份「缺什么」的清单。
+  const auth = env.CHAT_BUCKET ? await authState(env, request) : { required: false, ok: true };
   const models = modelList(env);
   if (auth.required && !auth.ok) {
     return json({ needsAuth: true, authed: false, title: siteTitle(env) }, 401);
@@ -333,9 +358,9 @@ async function handleConfig(request, env) {
     title: siteTitle(env),
     models,
     defaultModel: models[0].id,
-    // 缺失的必填变量。前端据此显示醒目提示，避免用户对着 500 猜原因。
+    // 缺失的运行依赖（变量 + 绑定）。前端据此显示醒目提示，避免用户对着 500 猜原因。
     missing,
-    missingHint: missing.length ? VARS_FIX_HINT : '',
+    missingHint: missing.length ? fixHint(missing) : '',
     endpointHost: (() => {
       try {
         return new URL(resolveEndpoint(env.API_URL)).host;
@@ -630,27 +655,25 @@ export default {
     const path = url.pathname;
 
     try {
-      if (!env.CHAT_BUCKET) {
-        return json(
-          {
-            error: 'binding_missing',
-            message: 'R2 绑定 CHAT_BUCKET 不存在。请确认 wrangler.jsonc 里的 r2_buckets 配置已生效并重新部署。',
-          },
-          500
-        );
-      }
-
       if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
 
-      // 页面
+      // 页面必须无条件能打开。否则 R2 绑定一丢，用户看到的就是一坨 JSON，
+      // 前端那套「缺什么、为什么缺、怎么修」的横幅永远没机会显示 —— 最需要它的场景反而失效。
       if (path === '/' || path === '/index.html') {
         return new Response(CHAT_HTML, {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
         });
       }
 
-      // 公开接口（无需登录）
+      // 配置接口同理：它本身就是用来报告故障的，不能因为故障而失效。
       if (path === '/api/config') return handleConfig(request, env);
+
+      // 以下接口都要读写 R2，缺绑定就在这里统一拦下并说清楚原因
+      if (!env.CHAT_BUCKET) {
+        return json({ error: 'binding_missing', message: BINDING_FIX_HINT }, 500);
+      }
+
+      // 公开接口（无需登录）
       if (path === '/api/login') return handleLogin(request, env);
       if (path === '/api/logout') return handleLogout(request, env);
 

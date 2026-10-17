@@ -10,6 +10,20 @@
   "observability": { "enabled": true },
   "upload_source_maps": true,
 
+  // ✅ 部署时保留 Dashboard 上已经配置的变量（明文 Text 和 Secret 都保留）。
+  //
+  //   这是「每次部署变量就被清空」的根治手段。它写在配置里，属于「声明层」防护：
+  //   不管是谁触发的部署、跑的是 `wrangler deploy` 还是 `npm run deploy`、
+  //   本地敲的还是 Workers Builds 自动跑的，都生效。
+  //   相比之下 package.json 里的 `--keep-vars` 属于「命令层」防护，
+  //   只有真的执行了那条脚本才算数 —— 而 Workers Builds 默认命令是
+  //   `npx wrangler deploy`（不带 flag），正好绕过它。
+  "keep_vars": true,
+
+  // 声明运行必需的 Secret。缺失时部署阶段就会报错并列出名字，
+  // 而不是「部署成功、线上发消息才 500」——早失败比晚失败便宜。
+  "secrets": { "required": ["API_URL", "API_KEY"] },
+
   // 把 public/index.html 当作纯文本模块 import 进 Worker
   "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
 
@@ -19,18 +33,24 @@
 
   // ⚠️ 关于环境变量，这里有一条容易踩的坑，务必读完：
   //
-  //   wrangler deploy 默认会「先删掉所有明文变量，再写入本文件 vars 里声明的」。
-  //   也就是说：只在 Dashboard 里加的【明文】变量，每次重新部署都会被清空。
-  //   而【Secret（加密）】类型永远不会被部署删除 —— 部署按钮创建的变量就是 Secret。
+  //   wrangler deploy 上传的是「完整的新版本」，metadata.bindings 是这个版本运行时的全部变量，
+  //   属于【全量替换】而不是增量修改。默认只带本文件 vars 里声明的那几个，
+  //   Dashboard 上填的明文变量不会被带回 —— 所以「没带上」看起来就是「被删了」。
+  //   Secret 之所以不丢，是因为它的值只在 Cloudflare 侧，wrangler 会从线上旧版本
+  //   把 secret_text 读回来一起上传。
   //
-  //   所以本项目有两条防线：
-  //     1. package.json 的 deploy 脚本用的是 `wrangler deploy --keep-vars`，
-  //        它跳过「先删」这一步，Dashboard 上的变量就不会被清掉。
-  //     2. 所有变量都建议在 Dashboard 里存成 Secret 类型（部署按钮自动就是这么做的）。
+  //   本项目现在有三道防线：
+  //     1. 上面 `"keep_vars": true` —— 配置级，覆盖面最广（推荐靠这个）。
+  //     2. package.json 的 deploy 脚本用 `wrangler deploy --keep-vars`，
+  //        走 `npm run deploy` 时同样会把线上已有的变量带回去。
+  //     3. 所有变量都建议在 Dashboard 里存成 Secret 类型（部署按钮自动就是这么做的）。
+  //
+  //   注意：`keep_vars` 的语义是「保留线上已有的」。所以你在 vars 里删掉某个变量后，
+  //   它仍会留在线上，不会被自动清掉 —— 需要去 Dashboard 手动删。
   //
   //   下面这个 vars 块建议保持注释状态：一旦在这里写了同名变量，它会覆盖 Dashboard 上的值，
-  //   想改配置就得改代码重新提交，反而更麻烦。只有当你希望配置「跟着代码走、可版本管理」时，
-  //   才取消注释并填值。
+  //   还会把同名的 Secret 降级成明文（下次部署就可能被清）。只有当你希望配置「跟着代码走、
+  //   可版本管理」时，才取消注释并填值。
   "vars": {
     // "MODEL": "gpt-4o-mini",
     // "MODELS": "gpt-4o-mini,gpt-4o",

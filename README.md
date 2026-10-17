@@ -56,12 +56,15 @@
 | `wrangler.jsonc` 的 `vars` | — | ✅ 每次部署重新写入 |
 | 部署按钮从 `.dev.vars.example` 收集的 | **Secret** | ✅ 保留 |
 
-**本项目做了两道防线：**
+**本项目做了三道防线：**
 
-1. `package.json` 的 `deploy` 脚本是 `wrangler deploy --keep-vars`，
+1. **`wrangler.jsonc` 里的 `"keep_vars": true`（最关键的一条）**。这是配置级开关，
+   不依赖任何人记得敲 `--keep-vars`，也不依赖构建平台跑的是哪条命令 ——
+   Workers Builds 的默认命令就是不带 flag 的 `npx wrangler deploy`，正好会绕过第 2 条。
+2. `package.json` 的 `deploy` 脚本是 `wrangler deploy --keep-vars`，
    跳过「先删」这一步。部署按钮会**自动读取这个脚本**去预填部署页的 Deploy command，
    所以一键部署和 `npm run deploy` 都不会再清变量。
-2. 后端在 `/api/config` 里返回缺失的必填变量，前端会在页面顶部弹出醒目横幅，
+3. 后端在 `/api/config` 里返回缺失的必填变量，前端会在页面顶部弹出醒目横幅，
    直接告诉你「哪些变量没了、为什么没了、怎么修」——不用再对着 500 猜。
 
 **所以：后续要加变量（`MODELS`、`ACCESS_PASSWORD` 等），请在 Dashboard 里
@@ -158,7 +161,15 @@ Cloudflare 的部署按钮不支持私有仓库，也不支持自建 Git 服务�
 
    > ⚠️ 部署命令末尾的 **`--keep-vars` 不能省**。Workers Builds 的部署命令默认是
    > `npx wrangler deploy`，而它会把 Dashboard 上的明文变量全部删掉。加上这个 flag 才会保留。
-   > 顺带一提，Cloudflare 会自动读取 `package.json` 的 `deploy` 脚本预填这一栏，本项目已经写好了。
+   >
+   > 这里要区分两种入口，**它们的行为不一样**：
+   >
+   > - **「Deploy to Cloudflare」按钮**：会自动读取 `package.json` 的 `deploy` 脚本预填这一栏。
+   > - **手动 Connect to Git 的 Workers Builds**：**不会**。官方文档写的是默认 `npx wrangler deploy`，
+   >   要跑你自己的脚本，得手动把这一栏改成 `npm run deploy`。
+   >
+   > 「我明明写了 `--keep-vars` 却还是每次都被清」，十有八九就是踩在这条上。
+   > （本项目已经在 `wrangler.jsonc` 里加了 `keep_vars: true`，即便漏改这一栏也不会再丢变量。）
 
 4. 部署完成后，去 **Settings → Variables and Secrets** 添加 `API_URL`、`API_KEY`、`MODEL` 等，
    **类型请选 `Secret`（加密）**。选 Secret 的话改完立即生效，不需要重新部署；
@@ -222,12 +233,13 @@ npm run check
 ## 三、目录结构
 
 ```
-├── wrangler.jsonc          部署配置（R2 自动创建的关键就在这里）
+├── wrangler.jsonc          部署配置（R2 自动创建、keep_vars 保留变量都在这里）
 ├── package.json            deploy 脚本带 --keep-vars，防止重新部署清空变量
+├── .dev.vars.example       本地开发变量模板 + 部署按钮的变量清单（别删，删了部署页就没有输入框）
+├── .gitignore              忽略 .dev.vars / node_modules，防止密钥误提交
 ├── src/index.js            Worker 后端：路由、R2 读写、SSE 流式转发
 ├── public/index.html       前端单页（HTML + CSS + JS 全在一个文件里）
-├── screenshots/            界面截图
-└── .dev.vars.example       本地开发变量模板 + 部署按钮的变量清单
+└── screenshots/            界面截图
 ```
 
 R2 里的数据结构：
@@ -311,24 +323,31 @@ data: {"type":"done","conversationId":"...","title":"...","messageCount":2}
 
 **重新部署后，之前配好的环境变量全没了**
 
-这是 wrangler 的默认行为，不是 bug：**`wrangler deploy` 会先删掉 Worker 上所有「明文（Text）」变量，
-再写入 `wrangler.jsonc` 的 `vars`**。只在 Dashboard 上加的明文变量，每次部署都会被清掉；
-**Secret 类型则永远不会被删。**
+这是 wrangler 的默认行为，不是 bug。准确说法是：**`wrangler deploy` 上传的是完整的新版本，
+其中的 `bindings` 是全量替换**，默认只带 `wrangler.jsonc` 的 `vars` 里声明的那几个。
+所以 Dashboard 上的明文变量「没被带上」= 「被删掉了」。
+Secret 之所以不丢，是因为它的值只在 Cloudflare 侧，wrangler 会从线上旧版本把它读回来一起上传。
 
-三种修法，任选其一（推荐第 1 种）：
+四种修法，任选其一（推荐第 1 种）：
 
-1. **把变量存成 Secret**。Dashboard → 该 Worker → Settings → Variables and Secrets → `Add`，
-   类型选 **Secret**。这是最省心的做法，部署按钮创建的变量本来就是 Secret。
-2. **用 `wrangler deploy --keep-vars` 部署**。本项目 `package.json` 的 `deploy` 脚本已经是这个，
+1. **在 `wrangler.jsonc` 里加 `"keep_vars": true`**。本项目已经加好了。
+   这是唯一一条「不依赖任何人、任何命令」的防护：谁触发部署、跑的是哪条命令都不影响。
+   代价是：你从 `vars` 里删掉的变量仍会留在线上，需要去 Dashboard 手动删。
+2. **把变量存成 Secret**。Dashboard → 该 Worker → Settings → Variables and Secrets → `Add`，
+   类型选 **Secret**。Secret 从设计上就不会被部署删除，改完立即生效、无需重新部署。
+3. **用 `wrangler deploy --keep-vars` 部署**。本项目 `package.json` 的 `deploy` 脚本已经是这个，
    所以 `npm run deploy` 不会清变量；Workers Builds 的话去 Settings → Build 把
-   Deploy command 改成 `npx wrangler deploy --keep-vars`（部署按钮会自动预填这一栏）。
-3. **写进 `wrangler.jsonc` 的 `vars`**，让配置跟着代码走。注意它会**覆盖** Dashboard 上的同名变量。
+   Deploy command 改成 `npm run deploy`（默认的 `npx wrangler deploy` 不带 flag）。
+4. **写进 `wrangler.jsonc` 的 `vars`**，让配置跟着代码走。注意它会**覆盖** Dashboard 上的同名变量，
+   还会把同名的 Secret 降级成明文。
 
 > 怎么快速确认是这个问题？打开页面，如果顶部出现黄色横幅写着「服务端缺少配置」，
 > 并把缺失的变量名列了出来，那就是它。
 
 **部署成功但打开是 500，提示 `binding_missing`**
 R2 绑定没生效。检查 `wrangler.jsonc` 里 `r2_buckets` 的 `binding` 是否叫 `CHAT_BUCKET`，然后重新部署。
+注意：现在页面和 `/api/config` 在缺绑定时仍能打开，你会在顶部横幅里直接看到 `CHAT_BUCKET` 缺失，
+而不是像以前那样整页只剩一坨 JSON。
 
 **自动创建 R2 失败**
 先确认账号已开通 R2（Dashboard → R2 页面点一次同意条款）。若仍失败，改为手动建桶并把 `bucket_name` 填进配置。
