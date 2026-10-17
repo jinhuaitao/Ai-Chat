@@ -1087,7 +1087,10 @@ input:focus, textarea:focus {
       var box = thinkBoxNode(text, live);
       // 没手动开合过：正在思考的块展开，已经结束的块收起
       box.open = typeof keepOpen === 'boolean' ? keepOpen : live;
-      box.addEventListener('toggle', function () { el.__thinkOpen = box.open; });
+      // 用 click 而不是 toggle 记状态：toggle 对「程序化设置 open」也会触发，
+      // 流式时每帧都在设 open，用它会把默认展开误记成「用户手动展开」，
+      // 结果流式结束后框再也收不起来。
+      $('summary', box).addEventListener('click', function () { el.__thinkOpen = !box.open; });
       el.appendChild(box);
     });
 
