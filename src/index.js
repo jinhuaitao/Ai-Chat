@@ -450,7 +450,7 @@ function extractDelta(obj) {
   return '';
 }
 
-async function handleChat(request, env, ctx) {
+async function handleChat(request, env) {
   const body = await request.json().catch(() => null);
   if (!body) return fail('请求体不是合法 JSON');
 
@@ -495,9 +495,6 @@ async function handleChat(request, env, ctx) {
     }
   }
 
-  // 客户端断开时用它掐掉上游请求，别再白烧 token
-  const upstreamCancel = new AbortController();
-
   let upstream;
   try {
     upstream = await fetch(endpoint, {
@@ -508,7 +505,6 @@ async function handleChat(request, env, ctx) {
         Authorization: 'Bearer ' + env.API_KEY,
       },
       body: JSON.stringify({ model, messages: upstreamMessages, stream: true }),
-      signal: upstreamCancel.signal,
     });
   } catch (e) {
     return json(
@@ -545,15 +541,6 @@ async function handleChat(request, env, ctx) {
     convRef.messages.push({ role: 'assistant', content: answer, ts: Date.now() });
     await saveConversation(env, convRef);
   }
-
-  // waitUntil 必须在返回 Response【之前】登记：客户端断开之后再调 ctx.waitUntil，
-  // 运行时已经不接受延长请求生命周期；而 cancel() 里直接 await 也不可靠——
-  // 那时候 Worker 不再保证还活着，中断的回复就可能静默丢失。
-  // 所以这里用一个 gate 把落盘挂到 waitUntil 上，等流真正结束（flush 或 cancel）再执行。
-  // 正常路径由 flush 里的 await 先完成写入，persist() 的幂等标志会让这里变成空操作。
-  let markSettled = () => {};
-  const settled = new Promise((resolve) => { markSettled = resolve; });
-  ctx.waitUntil(settled.then(() => persist()).catch(() => {}));
 
   const stream = new TransformStream({
     start(controller) {
@@ -601,7 +588,6 @@ async function handleChat(request, env, ctx) {
       } catch (e) {
         controller.enqueue(encoder.encode(sse({ type: 'error', message: '保存失败：' + String((e && e.message) || e) })));
       }
-      markSettled();
       controller.enqueue(
         encoder.encode(
           sse({
@@ -614,13 +600,13 @@ async function handleChat(request, env, ctx) {
       );
     },
 
-    // 客户端主动中断（点「停止」或关闭页面）时保留已生成的部分。
-    // 这里【不 await】落盘——连接已断，运行时不再等待这里的异步操作；
-    // 交给上面登记的 waitUntil 去做。abort 上游是 best-effort：
-    // 若运行时因管道未排空而暂不触发 cancel，这段流会随响应结束一并丢弃，不会泄漏。
-    cancel() {
-      markSettled();
-      upstreamCancel.abort();
+    // 客户端主动中断（点「停止」或关闭页面）时，把已经生成的部分保留下来
+    async cancel() {
+      try {
+        await persist();
+      } catch {
+        /* 中断场景下保存失败不值得再报错 */
+      }
     },
   });
 
@@ -639,7 +625,7 @@ async function handleChat(request, env, ctx) {
 /* ------------------------------------------------------------------ */
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -689,7 +675,7 @@ export default {
 
       if (path === '/api/chat') {
         if (request.method !== 'POST') return fail('方法不允许', 405, 'method_not_allowed');
-        return handleChat(request, env, ctx);
+        return handleChat(request, env);
       }
 
       return fail('接口不存在', 404, 'not_found');
