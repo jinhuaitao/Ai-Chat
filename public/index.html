@@ -1231,9 +1231,7 @@ input:focus, textarea:focus {
       '如果你之前配过，多半是重新部署时被清掉了 —— <code>wrangler deploy</code> 默认会删除' +
       '所有「明文（Text）」类型的变量，而「Secret（加密）」类型不受影响。<br>' +
       '修法：去 Cloudflare Dashboard → 该 Worker → <b>Settings → Variables and Secrets</b>，' +
-      '重新添加并<b>把类型选成 Secret</b>（Secret 不会被部署删除）。走 git 自动部署的话，' +
-      '还要去 <b>Settings → Build</b> 把 Deploy command 改成 <code>npm run deploy</code>，' +
-      '默认的 <code>npx wrangler deploy</code> 每次都会清空明文变量。';
+      '重新添加并<b>把类型选成 Secret</b>；或用 <code>wrangler deploy --keep-vars</code> 部署。';
     banner.classList.remove('hidden');
   }
 

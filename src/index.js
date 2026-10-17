@@ -19,9 +19,9 @@
  *   sess/<token>.json         登录会话（仅在启用访问密码时使用）
  *   login_fail/<ip>.json      登录失败限流记录
  *
- * 环境变量（Dashboard → Settings → Variables and Secrets，类型都选 Secret）
+ * 环境变量（Dashboard → Settings → Variables and Secrets）
  *   API_URL          上游接口地址（必填）
- *   API_KEY          上游密钥（必填）
+ *   API_KEY          上游密钥（必填，建议存为 Secret）
  *   MODEL            默认模型（可选，默认 gpt-4o-mini）
  *   MODELS           可选模型列表，逗号分隔（可选）
  *   SYSTEM_PROMPT    系统提示词（可选）
@@ -29,11 +29,9 @@
  *   ACCESS_PASSWORD  访问密码（可选，设置后需要登录）
  *
  * ⚠️ 变量为什么会「重新部署后就没了」
- *   wrangler deploy 默认会先把 Worker 上所有【明文（Text）】变量删掉，再写入 wrangler.jsonc 的 vars。
- *   所以只在 Dashboard 里加的明文变量，每次部署都会被清空；【Secret】类型永远不会被删。
- *   正解是把变量全存成 Secret。package.json 的 deploy 脚本虽然带了 --keep-vars，但 Workers Builds 的
- *   Deploy command 默认是不带这个 flag 的 `npx wrangler deploy`，也不会自动读 package.json，
- *   要自己去 Settings → Build 改。
+ *   wrangler deploy 默认会先把 Worker 上所有【明文】变量删掉，再写入 wrangler.jsonc 的 vars。
+ *   所以只在 Dashboard 里加的明文变量，每次部署都会被清空；而【Secret】类型永远不会被删。
+ *   本项目两道防线：package.json 的 deploy 脚本带 --keep-vars；并且建议全部存成 Secret。
  *   为了不让人对着 500 猜半天，/api/config 会把缺失的必填变量直接报出来（见 missingVars）。
  */
 
@@ -257,9 +255,7 @@ function missingVars(env) {
 const VARS_FIX_HINT =
   '去 Cloudflare Dashboard → 该 Worker → Settings → Variables and Secrets 添加，' +
   '类型请选 Secret（加密）。选 Text（明文）的变量会在每次 wrangler deploy 时被删除，' +
-  '这正是「重新部署后变量就没了」的原因。如果你走的是 git 自动部署，' +
-  '还要去 Settings → Build 确认 Deploy command 是 `npm run deploy`（带 --keep-vars），' +
-  '默认那条 `npx wrangler deploy` 会清空明文变量。';
+  '这正是「重新部署后变量就没了」的原因。';
 
 function missingVarsMessage(names) {
   return '缺少环境变量：' + names.join('、') + '。' + VARS_FIX_HINT;

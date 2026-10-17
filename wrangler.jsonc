@@ -13,27 +13,20 @@
   // 把 public/index.html 当作纯文本模块 import 进 Worker
   "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
 
-  // ⚠️ 这里【故意不写 bucket_name】，Cloudflare 侧的部署（部署按钮 / Workers Builds）会自动创建
-  // 并自动绑定 R2。但本地 `wrangler deploy` 也会「自动创建」—— 它会新建一个桶并切过去，
-  // 老对话看着就像丢了。所以：先只在控制台侧部署；真要改用本地部署，先去 Dashboard 把桶名
-  // 复制回来填进 bucket_name（例如 "bucket_name": "ai-chat-worker-xxx"）。
+  // ⚠️ 关键：这里【故意不写 bucket_name】，Cloudflare 会在部署时自动创建并自动绑定 R2。
+  // 如果之后想用已有的桶，把 bucket_name 填上即可（例如 "bucket_name": "my-chat-bucket"）。
   "r2_buckets": [{ "binding": "CHAT_BUCKET" }],
 
   // ⚠️ 关于环境变量，这里有一条容易踩的坑，务必读完：
   //
-  //   wrangler deploy 默认会「先删掉所有明文（Text）变量，再写入本文件 vars 里声明的」。
+  //   wrangler deploy 默认会「先删掉所有明文变量，再写入本文件 vars 里声明的」。
   //   也就是说：只在 Dashboard 里加的【明文】变量，每次重新部署都会被清空。
-  //   而【Secret（加密）】类型永远不会被部署删除。
+  //   而【Secret（加密）】类型永远不会被部署删除 —— 部署按钮创建的变量就是 Secret。
   //
-  //   所以这个坑的正确解法只有一个：变量都存成 Secret。
-  //     - 走部署按钮：仓库根目录的 .dev.vars.example 会驱动部署页生成填写框，收集到的值以 Secret 写入。
-  //     - 手动加：Dashboard → 该 Worker → Settings → Variables and Secrets → Add → 类型选 Secret。
-  //
-  //   package.json 的 deploy 脚本虽然带了 --keep-vars，但别把它当保护伞：
-  //   Workers Builds 的 Deploy command 默认是 `npx wrangler deploy`（不带 --keep-vars），
-  //   而且 Cloudflare 【不会】自动读取 package.json 的脚本来预填这一栏，必须自己去
-  //   Settings → Build 手动改成 `npm run deploy` 或 `npx wrangler deploy --keep-vars`。
-  //   走 GitHub Actions 的话，改 .github/workflows/deploy.yml 里的那条命令。
+  //   所以本项目有两条防线：
+  //     1. package.json 的 deploy 脚本用的是 `wrangler deploy --keep-vars`，
+  //        它跳过「先删」这一步，Dashboard 上的变量就不会被清掉。
+  //     2. 所有变量都建议在 Dashboard 里存成 Secret 类型（部署按钮自动就是这么做的）。
   //
   //   下面这个 vars 块建议保持注释状态：一旦在这里写了同名变量，它会覆盖 Dashboard 上的值，
   //   想改配置就得改代码重新提交，反而更麻烦。只有当你希望配置「跟着代码走、可版本管理」时，
